@@ -1,0 +1,46 @@
+name: Update redirects uri table
+
+on:
+  push:
+    paths:
+      - shorts.csv  # Trigger the workflow when this file is modified
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  update_table:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install Azure CLI Storage Table extension
+        run: |
+          az extension add --name storage-preview
+
+      - name: Update Azure Table with CSV Data
+        run: |
+          # Read the CSV and iterate over each line (skipping header)
+          while IFS=, read -r short_path redirect_uri title; do
+            # Skip header
+            if [ "$short_path" != "ShortPath" ]; then
+              echo "Processing: ShortPath=$short_path, RedirectUri=$redirect_uri, Title=$title"
+              # Insert or update the entity in Azure Table Storage
+              az storage entity insert \
+                --auth-mode login \
+                --account-name ${{ secrets.STORAGE_ACCOUNT_NAME }} \
+                --table-name ${{ secrets.STORAGE_TABLE_NAME }} \
+                --entity PartitionKey="${short_path:0:1}" RowKey="$short_path" Url="$redirect_uri" Title="$title" \
+                --if-exists replace
+            fi
+          done < shorts.csv
